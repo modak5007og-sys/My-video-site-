@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Free Video Generator</title>
+<style>
+  :root{--bg:#f6f7fb;--card:#fff;--text:#1c1e26;--muted:#6b7080;--accent:#5b5bf0}
+  @media (prefers-color-scheme:dark){:root{--bg:#14151a;--card:#1e2028;--text:#eceef5;--muted:#9aa0b4}}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text)}
+  main{max-width:720px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  textarea,select,input,button{font:inherit;padding:10px;border-radius:8px;border:1px solid #8886;width:100%;margin-bottom:8px;background:var(--bg);color:var(--text)}
+  textarea{min-height:110px}
+  .row{display:flex;gap:8px}
+  button{background:var(--accent);color:#fff;border:0;cursor:pointer}
+  button:disabled{opacity:.5}
+  video,canvas{width:100%;border-radius:10px;background:#000}
+  .meta{color:var(--muted);font-size:.9rem}
+  a.dl{display:block;text-align:center;padding:10px;border-radius:8px;background:#2a9d5c;color:#fff;text-decoration:none;margin-top:8px}
+</style>
+</head>
+<body>
+<main>
+  <h1>🎥 Free Video Generator</h1>
+  <p class="meta">No login, no limits, no server. Videos are made right in your browser.</p>
+
+  <div class="card">
+    <textarea id="script" placeholder="Write one scene per line, e.g.&#10;Welcome to my channel&#10;Today we learn something new&#10;Thanks for watching!"></textarea>
+    <div class="row">
+      <select id="style">
+        <option value="0">Sunset</option>
+        <option value="1">Ocean</option>
+        <option value="2">Forest</option>
+        <option value="3">Night</option>
+        <option value="4">Candy</option>
+      </select>
+      <select id="ratio">
+        <option value="16:9">Landscape 16:9</option>
+        <option value="9:16">Vertical 9:16</option>
+        <option value="1:1">Square 1:1</option>
+      </select>
+    </div>
+    <div class="row">
+      <select id="secs">
+        <option value="2">2 sec / scene</option>
+        <option value="3" selected>3 sec / scene</option>
+        <option value="5">5 sec / scene</option>
+      </select>
+      <select id="anim">
+        <option value="zoom">Zoom</option>
+        <option value="slide">Slide up</option>
+        <option value="fade">Fade</option>
+      </select>
+    </div>
+    <button id="go" onclick="generate()">Generate video</button>
+    <div class="meta" id="status"></div>
+  </div>
+
+  <div class="card">
+    <canvas id="cv" width="1280" height="720"></canvas>
+    <video id="out" controls playsinline style="display:none;margin-top:8px"></video>
+    <a id="dl" class="dl" style="display:none">Download video</a>
+  </div>
+</main>
+
+<script>
+const palettes = [
+  ['#ff7e5f','#feb47b','#ffffff'],
+  ['#2193b0','#6dd5ed','#ffffff'],
+  ['#11998e','#38ef7d','#0b2b20'],
+  ['#0f2027','#2c5364','#ffffff'],
+  ['#ff9a9e','#a18cd1','#ffffff']
+];
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+
+function setRatio(){
+  const [w,h] = document.getElementById('ratio').value.split(':').map(Number);
+  cv.width = w===16 ? 1280 : w===9 ? 720 : 1000;
+  cv.height = w===16 ? 720 : w===9 ? 1280 : 1000;
+}
+document.getElementById('ratio').onchange = () => { setRatio(); drawFrame('Preview',0.5,0); };
+
+function wrap(text, maxW){
+  const words = text.split(' '), lines = []; let line = '';
+  for(const w of words){
+    const t = line ? line+' '+w : w;
+    if(ctx.measureText(t).width > maxW && line){ lines.push(line); line = w; } else line = t;
+  }
+  lines.push(line); return lines;
+}
+
+function drawFrame(text, p, styleIdx){
+  const [c1,c2,tc] = palettes[styleIdx];
+  const W = cv.width, H = cv.height;
+  const g = ctx.createLinearGradient(0,0,W,H);
+  g.addColorStop(0,c1); g.addColorStop(1,c2);
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+
+  // floating circles for motion
+  ctx.globalAlpha = .15; ctx.fillStyle = '#fff';
+  for(let i=0;i<6;i++){
+    const x = (W*(i+1)/7 + p*80*(i%2?1:-1));
+    const y = H*(0.2 + 0.12*i) + Math.sin(p*6+i)*20;
+    ctx.beginPath(); ctx.arc(x,y,40+i*12,0,7); ctx.fill();
+  }
+
+  const anim = document.getElementById('anim').value;
+  const ease = Math.min(1, p*4), out = p>.85 ? (1-p)/.15 : 1;
+  ctx.globalAlpha = Math.max(0, Math.min(ease,out));
+  let scale = 1, dy = 0;
+  if(anim==='zoom') scale = .85 + .15*ease + p*.05;
+  if(anim==='slide') dy = (1-ease)*80;
+
+  ctx.save();
+  ctx.translate(W/2, H/2 + dy); ctx.scale(scale,scale);
+  const size = Math.round(W*0.07);
+  ctx.font = `700 ${size}px system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = tc;
+  const lines = wrap(text, W*0.8);
+  lines.forEach((l,i) => ctx.fillText(l, 0, (i-(lines.length-1)/2)*size*1.25));
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+async function generate(){
+  const scenes = document.getElementById('script').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const status = document.getElementById('status');
+  if(!scenes.length){ status.textContent = 'Please write at least one scene.'; return; }
+  if(!window.MediaRecorder || !cv.captureStream){ status.textContent = 'Your browser does not support video recording. Try Chrome, Edge or Firefox.'; return; }
+
+  setRatio();
+  const style = +document.getElementById('style').value;
+  const secs = +document.getElementById('secs').value;
+  const btn = document.getElementById('go'); btn.disabled = true;
+  document.getElementById('out').style.display = 'none';
+  document.getElementById('dl').style.display = 'none';
+
+  const stream = cv.captureStream(30);
+  const types = ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm','video/mp4'];
+  const mime = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+  const rec = new MediaRecorder(stream, mime ? {mimeType:mime, videoBitsPerSecond:4000000} : {});
+  const chunks = [];
+  rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+  const done = new Promise(r => rec.onstop = r);
+  rec.start();
+
+  for(let i=0;i<scenes.length;i++){
+    status.textContent = `Generating scene ${i+1} of ${scenes.length}...`;
+    const start = performance.now(), dur = secs*1000;
+    await new Promise(res => {
+      (function tick(now){
+        const p = Math.min(1,(performance.now()-start)/dur);
+        drawFrame(scenes[i], p, style);
+        p<1 ? requestAnimationFrame(tick) : res();
+      })();
+    });
+  }
+  rec.stop(); await done;
+
+  const type = rec.mimeType || 'video/webm';
+  const blob = new Blob(chunks,{type});
+  const url = URL.createObjectURL(blob);
+  const v = document.getElementById('out'); v.src = url; v.style.display = 'block';
+  const a = document.getElementById('dl'); a.href = url;
+  a.download = 'my-video.' + (type.includes('mp4') ? 'mp4' : 'webm'); a.style.display = 'block';
+  status.textContent = 'Done! Your video is ready.';
+  btn.disabled = false;
+}
+drawFrame('Preview',0.5,0);
+</script>
+</body>
+</html>
